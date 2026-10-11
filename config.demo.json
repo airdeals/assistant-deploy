@@ -1,0 +1,18 @@
+{
+  "ownerExternalId": "+79000000000",
+  "sources": [
+    { "name": "wa-1", "type": "demo", "platform": "whatsapp", "connectionType": "live" },
+    { "name": "wa-2", "type": "demo", "platform": "whatsapp", "connectionType": "coexistence" },
+    { "name": "tg-1", "type": "demo", "platform": "telegram", "connectionType": "live" },
+    { "name": "tg-2", "type": "demo", "platform": "telegram", "connectionType": "import_only" }
+  ],
+  "embeddings": { "kind": "mock" },
+  "channels": { "kind": "mock" },
+  "schedules": {
+    "pollMs": 2000,
+    "indexMs": 5000,
+    "digestMs": 20000,
+    "reminderAfterMs": 30000
+  },
+  "demo": { "seed": 42, "username": "demo", "ownerPassword": "demo-password" }
+}
