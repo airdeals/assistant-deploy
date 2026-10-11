@@ -1,0 +1,35 @@
+{
+  "name": "personal-ai-assistant-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Деплой-репозиторий личного AI-помощника: код без секретов, Node без root, PGlite вместо Docker Postgres.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "migrate": "tsx src/db/migrate.ts",
+    "migrate:down": "tsx src/db/migrate.ts down",
+    "db:smoke": "tsx src/db/smoke.ts",
+    "db:local-verify": "node scripts/db-local-verify.mjs",
+    "db:server": "node scripts/db-server.mjs",
+    "start": "tsx src/api/server.ts",
+    "import": "tsx src/cli/importCli.ts",
+    "start:demo": "node --import tsx scripts/start-demo.mjs",
+    "demo:smoke": "node scripts/smoke-demo-shutdown.mjs"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
