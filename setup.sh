@@ -96,7 +96,23 @@ echo "  npm:  $(npm -v)"
 
 say "Шаг 2: зависимости проекта"
 cd "$APP_DIR"
-npm install --no-audit --no-fund --legacy-peer-deps
+# На виртуальном хостинге иногда срабатывают лимиты процессов (spawn EAGAIN) —
+# поэтому до 3 попыток, а в конце — запасной вариант без install-скриптов
+# (esbuild и подобным постустановка не нужна: бинарник лежит в platform-пакете).
+NPM_OK=""
+for attempt in 1 2 3; do
+  echo "  попытка $attempt: npm install"
+  if npm install --no-audit --no-fund --legacy-peer-deps; then
+    NPM_OK=1
+    break
+  fi
+  echo "  попытка $attempt не удалась, пауза 15 сек"
+  sleep 15
+done
+if [ -z "$NPM_OK" ]; then
+  warn "три попытки не удались — ставлю без install-скриптов"
+  npm install --no-audit --no-fund --legacy-peer-deps --ignore-scripts
+fi
 
 say "Шаг 3: .env (секреты добавим позже, файл уже создан)"
 if [ ! -f .env ]; then
