@@ -96,7 +96,7 @@ echo "  npm:  $(npm -v)"
 
 say "Шаг 2: зависимости проекта"
 cd "$APP_DIR"
-npm install --no-audit --no-fund
+npm install --no-audit --no-fund --legacy-peer-deps
 
 say "Шаг 3: .env (секреты добавим позже, файл уже создан)"
 if [ ! -f .env ]; then
