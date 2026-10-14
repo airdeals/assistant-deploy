@@ -1,5 +1,6 @@
 // src/cli/importCli.ts
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 // src/db/dataSource.ts
 import pg from "pg";
@@ -448,25 +449,40 @@ async function main() {
   const format = args.format;
   const account = args.account;
   const file = args.file;
-  if (format !== "wa" && format !== "tg" || !account || !file) {
-    console.error("usage: --format=wa|tg --account=<accountId> --file=<path> [--chat=..] [--own-name=..] [--own-number=..] [--own-sender=..]");
+  const dir = args.dir;
+  if (format !== "wa" && format !== "tg" || !account || !file && !dir) {
+    console.error("usage: --format=wa|tg --account=<accountId> (--file=<path> | --dir=<folder>) [--chat=..] [--own-name=..] [--own-number=..] [--own-sender=..]");
     process.exitCode = 1;
     return;
   }
-  const content = await readFile(file, "utf8");
   const ds = createDataSource();
   try {
+    const files = [];
+    if (dir) {
+      const names = (await readdir(dir)).filter((n) => n.endsWith(".json")).sort();
+      for (const n of names) {
+        const content = await readFile(join(dir, n), "utf8");
+        const m = /^chat_(-?\d+)_/.exec(n);
+        files.push({
+          content,
+          chatExternalId: m ? `tg-${m[1]}` : void 0,
+          ...format === "tg" ? { tgOptions: { ownSenderId: args["own-sender"] } } : {}
+        });
+      }
+      console.error(`dir mode: ${files.length} chat files`);
+    } else {
+      const content = await readFile(file, "utf8");
+      files.push({
+        content,
+        ...args.chat ? { chatExternalId: args.chat } : {},
+        ...format === "wa" ? { waOptions: { ownName: args["own-name"], ownNumber: args["own-number"] } } : {},
+        ...format === "tg" ? { tgOptions: { ownSenderId: args["own-sender"] } } : {}
+      });
+    }
     const report = await importFiles(ds, {
       accountId: account,
       format,
-      files: [
-        {
-          content,
-          ...args.chat ? { chatExternalId: args.chat } : {},
-          ...format === "wa" ? { waOptions: { ownName: args["own-name"], ownNumber: args["own-number"] } } : {},
-          ...format === "tg" ? { tgOptions: { ownSenderId: args["own-sender"] } } : {}
-        }
-      ],
+      files,
       onProgress: (p) => console.error(`progress: ${p.chatExternalId} ${p.done}/${p.total}`)
     });
     console.log(JSON.stringify(report, null, 2));
