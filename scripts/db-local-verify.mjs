@@ -23,7 +23,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -71,10 +71,21 @@ try {
 
   process.env.DATABASE_URL = `postgres://postgres:postgres@${HOST}:${PORT}/postgres`;
 
-  await run("migrations 0001→0003", ["--import", "tsx", "src/db/migrate.ts"]);
-  await run("db:smoke", ["--import", "tsx", "src/db/smoke.ts"]);
-  await run("integration tests (tests/db.integration.test.ts)",
-    [path.join("node_modules", "vitest", "vitest.mjs"), "run", "tests/db.integration.test.ts"]);
+  // На сервере используем собранные бандлы (dist/), локально — tsx + src.
+  const useDist = existsSync(path.join(CWD, "dist", "db", "migrate.js"));
+  if (useDist) {
+    await run("migrations 0001→0003 (dist)", ["dist/db/migrate.js"]);
+    await run("db:smoke (dist)", ["dist/db/smoke.js"]);
+  } else {
+    await run("migrations 0001→0003", ["--import", "tsx", "src/db/migrate.ts"]);
+    await run("db:smoke", ["--import", "tsx", "src/db/smoke.ts"]);
+  }
+  if (process.env.SKIP_VITEST === "1") {
+    console.log("\n(integration tests skipped: SKIP_VITEST=1 — на сервере vitest не нужен)");
+  } else {
+    await run("integration tests (tests/db.integration.test.ts)",
+      [path.join("node_modules", "vitest", "vitest.mjs"), "run", "tests/db.integration.test.ts"]);
+  }
 
   console.log("\nDB LOCAL VERIFY: ALL GREEN");
 } catch (e) {

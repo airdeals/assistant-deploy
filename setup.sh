@@ -5,7 +5,7 @@
 # Что делает:
 #   1. Скачивает Node.js в ~/assistant-runtime/node (без root);
 #      - glibc >= 2.28: официальная сборка v22;
-#      - glibc < 2.28 (напр. Ubuntu 18.04): неофициальная сборка v20 (glibc-2.17);
+#      - glibc < 2.28 (напр. Ubuntu 18.04): неофициальная сборка v20 (glibc-217);
 #   2. npm install зависимостей (чистый JS, без нативных сборок);
 #   3. Создаёт .env из .env.example, если его нет (секреты добавим позже);
 #   4. Запускает db:local-verify — эфемерный PGlite + миграции + smoke + интеграционный тест.
@@ -94,25 +94,23 @@ export PATH="$NODE_DIR/bin:$PATH"
 echo "  node: $(node -v)"
 echo "  npm:  $(npm -v)"
 
-say "Шаг 2: зависимости проекта"
+say "Шаг 2: зависимости проекта (только рабочие, без сборщиков)"
 cd "$APP_DIR"
-# На виртуальном хостинге иногда срабатывают лимиты процессов (spawn EAGAIN) —
-# поэтому до 3 попыток, а в конце — запасной вариант без install-скриптов
-# (esbuild и подобным постустановка не нужна: бинарник лежит в platform-пакете).
+# Код на сервере идёт собранным (dist/) — tsx/esbuild/vitest не нужны.
+# Ставим только runtime-зависимости (pglite, pg, zod) и без install-скриптов:
+# так установка создаёт минимум процессов и проходит даже при жёстких
+# лимитах виртуального хостинга (иначе spawn sh падает с EAGAIN).
 NPM_OK=""
 for attempt in 1 2 3; do
-  echo "  попытка $attempt: npm install"
-  if npm install --no-audit --no-fund --legacy-peer-deps; then
+  echo "  попытка $attempt: npm install --omit=dev --ignore-scripts"
+  if npm install --omit=dev --no-audit --no-fund --legacy-peer-deps --ignore-scripts; then
     NPM_OK=1
     break
   fi
   echo "  попытка $attempt не удалась, пауза 15 сек"
   sleep 15
 done
-if [ -z "$NPM_OK" ]; then
-  warn "три попытки не удались — ставлю без install-скриптов"
-  npm install --no-audit --no-fund --legacy-peer-deps --ignore-scripts
-fi
+[ -z "$NPM_OK" ] && die "npm install не удался после 3 попыток — сообщите владельцу"
 
 say "Шаг 3: .env (секреты добавим позже, файл уже создан)"
 if [ ! -f .env ]; then
@@ -122,8 +120,8 @@ else
   echo "  .env уже есть, не трогаю"
 fi
 
-say "Шаг 4: проверка базы (PGlite + миграции + smoke)"
-npm run db:local-verify
+say "Шаг 4: проверка базы (PGlite + миграции + smoke, по собранным бандлам)"
+SKIP_VITEST=1 npm run db:local-verify
 
 say "ГОТОВО"
 cat <<'EOF'

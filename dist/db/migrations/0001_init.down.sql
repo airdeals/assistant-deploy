@@ -1,0 +1,26 @@
+-- Откат 0001_init.
+DROP TABLE IF EXISTS message_embeddings;
+DROP TABLE IF EXISTS audit_events;
+DROP TABLE IF EXISTS consents;
+DROP TABLE IF EXISTS sync_checkpoints;
+DROP TABLE IF EXISTS import_batches;
+DROP TABLE IF EXISTS delivery_attempts;
+DROP TABLE IF EXISTS reminders;
+DROP TABLE IF EXISTS financial_events;
+DROP TABLE IF EXISTS order_revisions;
+DROP TABLE IF EXISTS order_lines;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS pending_replies;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS evidence;
+DROP TABLE IF EXISTS transcripts;
+DROP TABLE IF EXISTS attachments;
+DROP TABLE IF EXISTS message_revisions;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS chat_participants;
+DROP TABLE IF EXISTS chats;
+DROP TABLE IF EXISTS person_links;
+DROP TABLE IF EXISTS identities;
+DROP TABLE IF EXISTS persons;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS owners;
