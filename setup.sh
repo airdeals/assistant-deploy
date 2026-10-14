@@ -3,7 +3,9 @@
 # Работает на обычном виртуальном хостинге (Timeweb и подобных).
 #
 # Что делает:
-#   1. Скачивает Node.js v22 (LTS) в ~/assistant-runtime/node (без root);
+#   1. Скачивает Node.js в ~/assistant-runtime/node (без root);
+#      - glibc >= 2.28: официальная сборка v22;
+#      - glibc < 2.28 (напр. Ubuntu 18.04): неофициальная сборка v20 (glibc-2.17);
 #   2. npm install зависимостей (чистый JS, без нативных сборок);
 #   3. Создаёт .env из .env.example, если его нет (секреты добавим позже);
 #   4. Запускает db:local-verify — эфемерный PGlite + миграции + smoke + интеграционный тест.
@@ -11,7 +13,6 @@
 # Запуск:  bash setup.sh
 set -euo pipefail
 
-NODE_VER="v22.23.1"
 NODE_DIR="$HOME/assistant-runtime/node"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -35,13 +36,40 @@ for tool in curl wget git python3; do
 done
 [ -z "$HAVE_DL" ] && die "нет ни curl, wget, git, ни python3 — сообщите владельцу, нужна другая схема доставки"
 
-say "Шаг 1: Node.js ${NODE_VER} в ${NODE_DIR}"
-if [ ! -x "$NODE_DIR/bin/node" ]; then
+say "Шаг 1: подбор сборки Node.js под эту систему"
+GLIBC_VER="$(ldd --version 2>/dev/null | head -1 | awk '{print $NF}' | grep -E '^[0-9]+\.[0-9]+$' || echo '0.0')"
+GLIBC_MAJOR="${GLIBC_VER%%.*}"
+GLIBC_MINOR="${GLIBC_VER##*.}"
+echo "  glibc: $GLIBC_VER"
+if [ "$GLIBC_MAJOR" -gt 2 ] || { [ "$GLIBC_MAJOR" -eq 2 ] && [ "$GLIBC_MINOR" -ge 28 ]; }; then
+  NODE_VER="v22.23.1"
+  NODE_FLAVOUR="linux-x64"
+  NODE_BASE="https://nodejs.org/dist"
+else
+  NODE_VER="v20.18.1"
+  NODE_FLAVOUR="linux-x64-glibc-217"
+  NODE_BASE="https://unofficial-builds.nodejs.org/download/release"
+  warn "glibc $GLIBC_VER старше 2.28 — беру совместимую сборку Node.js $NODE_VER (glibc-217)"
+fi
+TARBALL="node-${NODE_VER}-${NODE_FLAVOUR}.tar.gz"
+
+NEED_INSTALL=1
+if [ -x "$NODE_DIR/bin/node" ] && "$NODE_DIR/bin/node" -v >/dev/null 2>&1; then
+  HAVE_VER="$("$NODE_DIR/bin/node" -v)"
+  if [ "$HAVE_VER" = "$NODE_VER" ]; then
+    NEED_INSTALL=0
+    echo "  уже установлен и работает: $HAVE_VER"
+  else
+    echo "  найден $HAVE_VER, нужен $NODE_VER — переустанавливаю"
+  fi
+fi
+
+if [ "$NEED_INSTALL" = "1" ]; then
+  rm -rf "$NODE_DIR"
   mkdir -p "$NODE_DIR"
-  TARBALL="node-${NODE_VER}-linux-x64.tar.gz"
   URLS=(
-    "https://nodejs.org/dist/${NODE_VER}/${TARBALL}"
-    "https://github.com/nodejs/node/releases/download/${NODE_VER}/${TARBALL}"
+    "${NODE_BASE}/${NODE_VER}/${TARBALL}"
+    "https://nodejs.org/dist/${NODE_VER}/node-${NODE_VER}-linux-x64.tar.gz"
   )
   OK=""
   for url in "${URLS[@]}"; do
@@ -57,11 +85,9 @@ urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
 PY
     fi
   done
-  [ -z "$OK" ] && die "не удалось скачать Node.js (проверьте доступ к nodejs.org или github.com)"
+  [ -z "$OK" ] && die "не удалось скачать Node.js (проверьте доступ к nodejs.org или unofficial-builds.nodejs.org)"
   tar -xzf "/tmp/${TARBALL}" -C "$NODE_DIR" --strip-components=1
   rm -f "/tmp/${TARBALL}"
-else
-  echo "  уже установлен: $($NODE_DIR/bin/node -v)"
 fi
 
 export PATH="$NODE_DIR/bin:$PATH"
