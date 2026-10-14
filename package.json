@@ -13,6 +13,7 @@
     "db:smoke": "node dist/db/smoke.js",
     "db:local-verify": "node scripts/db-local-verify.mjs",
     "db:server": "node scripts/db-server.mjs",
+    "bot": "node dist/bot/bot.js",
     "start": "node dist/api/server.js",
     "import": "node dist/cli/importCli.js",
     "start:demo": "node --import tsx scripts/start-demo.mjs",
