@@ -76,6 +76,16 @@ rm -rf /tmp/tg1 && mkdir -p /tmp/tg1
 tar -xzf /tmp/tg1.tar.gz -C /tmp/tg1 || { echo BOOT_FAIL_TAR; exit 1; }
 echo "CHAT_FILES $(ls /tmp/tg1/tg1_chats | wc -l)"
 
+# 6.5 stats BEFORE import
+node -e "
+const pg=require('$HOME/assistant/node_modules/pg');
+const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+c.connect()
+ .then(()=>Promise.all([c.query('SELECT a.adapter, count(ch.id) AS chats FROM accounts a LEFT JOIN chats ch ON ch.account_id=a.id GROUP BY a.adapter'),c.query('SELECT count(*) AS msgs FROM messages')]))
+ .then(([a,m])=>{console.log('PRESTATS_CHATS',JSON.stringify(a.rows));console.log('PRESTATS_MSGS',m.rows[0].msgs);return c.end();})
+ .catch(e=>{console.error('PRESTATS_FAIL',e.message);process.exit(1);});
+"
+
 # 7. import (long)
 node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=/tmp/tg1/tg1_chats --own-sender=user230434076
 echo "IMPORT_EXIT=$?"
@@ -100,7 +110,9 @@ c.connect()
  .catch(e=>{console.error('STATS_FAIL',e.message);process.exit(1);});
 "
 
-# 10. restart bot
+# 10. ensure TG_OWNER_ID in .env, restart bot
+grep -q '^TG_OWNER_ID=' .env || echo 'TG_OWNER_ID=1121294292' >> .env
+grep TG_OWNER_ID .env
 nohup node dist/bot/bot.js > ~/bot.log 2>&1 &
 echo "BOT_STARTED $!"
 sleep 5
