@@ -106,22 +106,24 @@ c.connect()
  .catch(e=>{console.error('PRESTATS_FAIL',e.message);process.exit(1);});
 "
 
-# 7. import in BATCHES (single long import gets SIGKILLed by cgroup; small batches keep peak memory low)
+# 7. import in BATCHES (killer on host ends node processes; grinder retries same batch until it passes)
 ls ~/tg1_extract/tg1_chats > ~/tg1_filelist.txt
 TOTAL=$(wc -l < ~/tg1_filelist.txt)
 echo "FILES_TOTAL=$TOTAL"
-BATCH=120
+BATCH=25
 START_IDX=1
 [ -f ~/tg1_batch_state ] && START_IDX=$(cat ~/tg1_batch_state)
+FAILS=0
 while [ "$START_IDX" -le "$TOTAL" ]; do
   END_IDX=$((START_IDX+BATCH-1))
   [ "$END_IDX" -gt "$TOTAL" ] && END_IDX=$TOTAL
   rm -rf ~/tg1_batch && mkdir -p ~/tg1_batch
   sed -n "${START_IDX},${END_IDX}p" ~/tg1_filelist.txt | while read -r FN; do
-    [ -f "$HOME/tg1_extract/tg1_chats/$FN" ] && mv "$HOME/tg1_extract/tg1_chats/$FN" "$HOME/tg1_batch/"
+    [ -f "$HOME/tg1_extract/tg1_chats/$FN" ] && cp "$HOME/tg1_extract/tg1_chats/$FN" "$HOME/tg1_batch/"
   done
   CNT=$(ls ~/tg1_batch | wc -l)
   echo "BATCH_RUN $START_IDX-$END_IDX files=$CNT"
+  OK=1
   if [ "$CNT" -gt 0 ]; then
     OK=0
     for TRY in 1 2 3; do
@@ -133,10 +135,20 @@ while [ "$START_IDX" -le "$TOTAL" ]; do
       [ "$RC" = 0 ] && { OK=1; break; }
       sleep 15
     done
-    [ "$OK" = 0 ] && { echo "BATCH_FAILED range=$START_IDX-$END_IDX"; echo BOOT_FAIL_IMPORT; exit 1; }
   fi
-  echo "$((END_IDX+1))" > ~/tg1_batch_state
-  START_IDX=$((END_IDX+1))
+  if [ "$OK" = 1 ]; then
+    sed -n "${START_IDX},${END_IDX}p" ~/tg1_filelist.txt | while read -r FN; do
+      rm -f "$HOME/tg1_extract/tg1_chats/$FN"
+    done
+    echo "$((END_IDX+1))" > ~/tg1_batch_state
+    START_IDX=$((END_IDX+1))
+    FAILS=0
+  else
+    FAILS=$((FAILS+1))
+    echo "BATCH_FAILED range=$START_IDX-$END_IDX fails=$FAILS"
+    sleep 30
+    [ "$FAILS" -ge 150 ] && { echo BOOT_FAIL_IMPORT; exit 1; }
+  fi
 done
 echo ALL_BATCHES_DONE
 
