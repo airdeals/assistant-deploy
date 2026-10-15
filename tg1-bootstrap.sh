@@ -18,12 +18,23 @@ export TG_BOT_TOKEN="$(grep -E '^TG_BOT_TOKEN=' .env | cut -d= -f2- | tr -d '"\r
 echo "=== bootstrap start $(date) ==="
 echo "DATABASE_URL=$DATABASE_URL"
 
-# 0. DB alive?
-node -e "
+# 0. DB alive? (auto-start db-server if the external killer stopped it)
+ensure_db() {
+  node -e "
 const pg=require('$HOME/assistant/node_modules/pg');
 const c=new pg.Client({connectionString:process.env.DATABASE_URL});
-c.connect().then(()=>c.query('SELECT 1 as ok')).then(r=>{console.log('DB_OK',r.rows[0].ok);return c.end();}).catch(e=>{console.error('DB_FAIL',e.message);process.exit(1);});
-" || { echo BOOT_FAIL_DB; exit 1; }
+c.connect().then(()=>c.query('SELECT 1 as ok')).then(r=>{console.log('DB_OK',r.rows[0].ok);return c.end();}).catch(e=>{console.error('DB_DOWN');process.exit(1);});
+"
+}
+start_db() {
+  echo "STARTING_DB_SERVER"
+  cd "$HOME/assistant"
+  nohup "$HOME/assistant-runtime/node/bin/node" scripts/db-server.mjs > ~/db-server.log 2>&1 &
+  echo "DB_SERVER_PID $!"
+  sleep 10
+}
+ensure_db || start_db
+ensure_db || { echo BOOT_FAIL_DB; exit 1; }
 
 # 1. update importCli bundle (pinned commit)
 curl -sL "https://raw.githubusercontent.com/airdeals/assistant-deploy/15e177624d5732cd387ee013b08625deac75b51f/dist/cli/importCli.js" -o dist/cli/importCli.js
@@ -99,13 +110,16 @@ while [ "$START_IDX" -le "$TOTAL" ]; do
   CNT=$(ls ~/tg1_batch | wc -l)
   echo "BATCH_RUN $START_IDX-$END_IDX files=$CNT"
   if [ "$CNT" -gt 0 ]; then
+    OK=0
     for TRY in 1 2 3; do
+      ensure_db || start_db
       node --max-old-space-size=768 dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_batch --own-sender=user230434076
       RC=$?
       echo "BATCH_EXIT range=$START_IDX-$END_IDX try=$TRY rc=$RC"
-      [ "$RC" = 0 ] && break
+      [ "$RC" = 0 ] && { OK=1; break; }
       sleep 15
     done
+    [ "$OK" = 0 ] && { echo "BATCH_FAILED range=$START_IDX-$END_IDX"; echo BOOT_FAIL_IMPORT; exit 1; }
   fi
   echo "$((END_IDX+1))" > ~/tg1_batch_state
   START_IDX=$((END_IDX+1))
