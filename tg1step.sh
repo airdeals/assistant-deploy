@@ -61,6 +61,7 @@ CNT=$(ls "$BATCHDIR" 2>/dev/null | wc -l)
 echo "BATCH from=$FIRSTIDX files=$CNT sum=$SUM next=$IDX" >> "$LOG"
 if [ "$CNT" = 0 ]; then
   echo "ALL_DONE $(date)" >> "$LOG"
+  touch "$HOME_REAL/tg1_done"
   tail -100 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
   exit 0
 fi
