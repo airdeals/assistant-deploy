@@ -9,7 +9,7 @@ if [ -z "$TG1_BG" ]; then
   exit 0
 fi
 
-set -x
+set -u
 cd "$HOME/assistant" || { echo BOOT_FAIL_NO_APP; exit 1; }
 export PATH="$HOME/assistant-runtime/node/bin:$PATH"
 export DATABASE_URL="$(grep -E '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '"\r' | sed 's/localhost/127.0.0.1/')"
@@ -29,57 +29,46 @@ c.connect().then(()=>c.query('SELECT 1 as ok')).then(r=>{console.log('DB_OK',r.r
 curl -sL "https://raw.githubusercontent.com/airdeals/assistant-deploy/15e177624d5732cd387ee013b08625deac75b51f/dist/cli/importCli.js" -o dist/cli/importCli.js
 sha256sum dist/cli/importCli.js
 
-# 2. fetch_chunks.mjs
-cat > fetch_chunks.mjs <<'MJS_EOF'
-import { createWriteStream } from "node:fs";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-
-const [, , metaJson, outfile] = process.argv;
-const meta = JSON.parse(metaJson);
-const TOKEN = process.env.TG_BOT_TOKEN;
-if (!TOKEN) { console.error("TG_BOT_TOKEN required"); process.exit(1); }
-
-async function api(path) {
-  const r = await fetch(`https://api.telegram.org/bot${TOKEN}${path}`);
-  return r.json();
-}
-
-const out = createWriteStream(outfile);
-for (const p of meta.parts) {
-  const gf = await api(`/getFile?file_id=${encodeURIComponent(p.file_id)}`);
-  if (!gf.ok) { console.error("getFile fail", p.part, gf); process.exit(1); }
-  const url = `https://api.telegram.org/file/bot${TOKEN}/${gf.result.file_path}`;
-  const res = await fetch(url);
-  if (!res.ok || !res.body) { console.error("fetch fail", p.part, res.status); process.exit(1); }
-  await pipeline(Readable.fromWeb(res.body), out, { end: false });
-  console.log(`part ${p.part} streamed`);
-}
-out.end();
-await new Promise((r) => out.on("finish", r));
-console.log("ASSEMBLY_DONE", outfile);
-MJS_EOF
-wc -c fetch_chunks.mjs
-
-# 3. chunks meta
-cat > /tmp/chunks.json <<'JSON_EOF'
-{"source": "tg1_chats.tar.gz", "size": 102882227, "parts": [{"part": 1, "name": "tg1_chats.tar.gz.part001", "file_id": "BQACAgQAAxkDAAMLas_r9tONvETWx-aiSHpH-0fJlEgAAhIjAALi1HhSCwX4m7pfOJA9BA"}, {"part": 2, "name": "tg1_chats.tar.gz.part002", "file_id": "BQACAgQAAxkDAAMMas_r_c2jt4Ifeoz4NLfaotNYTYkAAhQjAALi1HhSBiPIguq9xFA9BA"}, {"part": 3, "name": "tg1_chats.tar.gz.part003", "file_id": "BQACAgQAAxkDAAMNas_r_udiwKxcWh_XF_tAvf18CJUAAhUjAALi1HhSyhtu5mWsMaE9BA"}, {"part": 4, "name": "tg1_chats.tar.gz.part004", "file_id": "BQACAgQAAxkDAAMOas_sBYHD6XpDAWrgAdkdBeWyKfoAAhYjAALi1HhSER35wzfcjTg9BA"}, {"part": 5, "name": "tg1_chats.tar.gz.part005", "file_id": "BQACAgQAAxkDAAMPas_sBsewmnYDPmokGC8WHKgdQ8YAAhcjAALi1HhSmA77Zbf5WFk9BA"}, {"part": 6, "name": "tg1_chats.tar.gz.part006", "file_id": "BQACAgQAAxkDAAMQas_sDKXlCzUjtUCCdhwWYEyZvk8AAhgjAALi1HhSqINt--Oi1lI9BA"}]}
-JSON_EOF
-wc -c /tmp/chunks.json
+# 2-3. (fetch_chunks.mjs removed — curl-based downloader below, resilient to external kills)
 
 # 4. kill bot (single-connection DB)
 BOTPID="$(ps aux | grep 'dist/bot/bot.js' | grep -v grep | awk '{print $2}')"
 if [ -n "$BOTPID" ]; then kill $BOTPID && echo "BOT_KILLED $BOTPID"; fi
 sleep 2
 
-# 5. download + assemble chunks
-rm -f /tmp/tg1.tar.gz
-node fetch_chunks.mjs "$(cat /tmp/chunks.json)" /tmp/tg1.tar.gz || { echo BOOT_FAIL_FETCH; exit 1; }
-ls -la /tmp/tg1.tar.gz
+# 5. download parts one-by-one with curl (short-lived processes + retries; survives external kills)
+mkdir -p ~/tg1_parts
+PARTS="1:BQACAgQAAxkDAAMLas_r9tONvETWx-aiSHpH-0fJlEgAAhIjAALi1HhSCwX4m7pfOJA9BA
+2:BQACAgQAAxkDAAMMas_r_c2jt4Ifeoz4NLfaotNYTYkAAhQjAALi1HhSBiPIguq9xFA9BA
+3:BQACAgQAAxkDAAMNas_r_udiwKxcWh_XF_tAvf18CJUAAhUjAALi1HhSyhtu5mWsMaE9BA
+4:BQACAgQAAxkDAAMOas_sBYHD6XpDAWrgAdkdBeWyKfoAAhYjAALi1HhSER35wzfcjTg9BA
+5:BQACAgQAAxkDAAMPas_sBsewmnYDPmokGC8WHKgdQ8YAAhcjAALi1HhSmA77Zbf5WFk9BA
+6:BQACAgQAAxkDAAMQas_sDKXlCzUjtUCCdhwWYEyZvk8AAhgjAALi1HhSqINt--Oi1lI9BA"
+FAIL=0
+for ENTRY in $PARTS; do
+  N="${ENTRY%%:*}"; FID="${ENTRY#*:}"
+  OUT=~/tg1_parts/part0$N
+  if [ -s "$OUT" ]; then echo "part $N already present, size $(wc -c < $OUT)"; continue; fi
+  OK=0
+  for TRY in 1 2 3 4 5; do
+    FP=$(node -e "fetch('https://api.telegram.org/bot'+process.env.TG_BOT_TOKEN+'/getFile?file_id='+encodeURIComponent('$FID')).then(r=>r.json()).then(j=>{if(!j.ok){process.exit(1)}console.log(j.result.file_path)}).catch(()=>process.exit(1))")
+    if [ -n "$FP" ]; then
+      curl -sL -m 600 -o "$OUT" "https://api.telegram.org/file/bot$TG_BOT_TOKEN/$FP"
+      SZ=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+      if [ "$SZ" -gt 1000000 ]; then echo "part $N ok try $TRY size $SZ"; OK=1; break; fi
+    fi
+    echo "part $N try $TRY failed, retry in 10s"; sleep 10
+  done
+  [ "$OK" = 0 ] && { echo "PART $N FAILED"; FAIL=1; break; }
+done
+[ "$FAIL" = 1 ] && { echo BOOT_FAIL_FETCH; exit 1; }
+rm -f ~/tg1_parts/tg1.tar.gz
+cat ~/tg1_parts/part01 ~/tg1_parts/part02 ~/tg1_parts/part03 ~/tg1_parts/part04 ~/tg1_parts/part05 ~/tg1_parts/part06 > ~/tg1_parts/tg1.tar.gz
+echo "ASSEMBLY_DONE $(wc -c < ~/tg1_parts/tg1.tar.gz)"
 
 # 6. extract (to disk-backed dir, NOT /tmp tmpfs — cgroup kills big tmpfs writes)
 rm -rf ~/tg1_extract && mkdir -p ~/tg1_extract
-tar -xzf /tmp/tg1.tar.gz -C ~/tg1_extract || { echo BOOT_FAIL_TAR; exit 1; }
+tar -xzf ~/tg1_parts/tg1.tar.gz -C ~/tg1_extract || { echo BOOT_FAIL_TAR; exit 1; }
 echo "CHAT_FILES $(ls ~/tg1_extract/tg1_chats | wc -l)"
 
 # 6.5 stats BEFORE import
@@ -92,9 +81,16 @@ c.connect()
  .catch(e=>{console.error('PRESTATS_FAIL',e.message);process.exit(1);});
 "
 
-# 7. import (long)
+# 7. import (long; retry once if killed externally — importCli upserts by external id)
 node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_extract/tg1_chats --own-sender=user230434076
-echo "IMPORT_EXIT=$?"
+RC=$?
+echo "IMPORT_EXIT=$RC"
+if [ "$RC" != 0 ]; then
+  echo "IMPORT_RETRY after 20s"
+  sleep 20
+  node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_extract/tg1_chats --own-sender=user230434076
+  echo "IMPORT_EXIT2=$?"
+fi
 
 # 8. fix account own_external_id
 node -e "
