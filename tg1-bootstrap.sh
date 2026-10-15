@@ -15,8 +15,21 @@ export PATH="$HOME/assistant-runtime/node/bin:$PATH"
 export DATABASE_URL="$(grep -E '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '"\r' | sed 's/localhost/127.0.0.1/')"
 [ -z "$DATABASE_URL" ] && export DATABASE_URL="postgres://assistant:assistant@127.0.0.1:5433/assistant"
 export TG_BOT_TOKEN="$(grep -E '^TG_BOT_TOKEN=' .env | cut -d= -f2- | tr -d '"\r')"
+export UV_THREADPOOL_SIZE=2
 echo "=== bootstrap start $(date) ==="
 echo "DATABASE_URL=$DATABASE_URL"
+
+# Quota guard: max user processes = 40 on this host; wait for headroom before heavy steps
+wait_quota() {
+  for W in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    N=$(ps -eLf | wc -l)
+    echo "TASKS=$N wait=$W"
+    [ "$N" -lt 30 ] && return 0
+    sleep 20
+  done
+  return 0
+}
+wait_quota
 
 # 0. DB alive? (auto-start db-server if the external killer stopped it)
 ensure_db() {
@@ -112,6 +125,7 @@ while [ "$START_IDX" -le "$TOTAL" ]; do
   if [ "$CNT" -gt 0 ]; then
     OK=0
     for TRY in 1 2 3; do
+      wait_quota
       ensure_db || start_db
       node --max-old-space-size=768 dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_batch --own-sender=user230434076
       RC=$?
