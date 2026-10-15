@@ -43,11 +43,11 @@ IDX=1
 [ -z "$IDX" ] && IDX=1
 echo "PROGRESS idx=$IDX total=$TOTAL $(date)" >> "$LOG"
 
-# 2. collect batch: <=50 files and <=20MB total; one big file goes alone
+# 2. collect batch: <=150 files and <=50MB total; one big file goes alone
 rm -rf "$BATCHDIR"; mkdir -p "$BATCHDIR"
-BUDGET=20971520; N=0; SUM=0; FIRSTIDX=$IDX
+BUDGET=52428800; N=0; SUM=0; FIRSTIDX=$IDX
 while [ "$IDX" -le "$TOTAL" ]; do
-  [ "$N" -ge 50 ] && break
+  [ "$N" -ge 150 ] && break
   [ "$SUM" -ge "$BUDGET" ] && break
   FN=$(sed -n "${IDX}p" "$LIST")
   SZ=$(stat -c %s "$SRC/$FN" 2>/dev/null || echo 0)
