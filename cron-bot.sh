@@ -4,13 +4,25 @@
 HOME_REAL=/home/k/kebabms
 # importer owns the single DB connection while its pause flag is fresh (<15 min)
 if [ -f "$HOME_REAL/IMPORT_PAUSE" ] && [ -z "$(find "$HOME_REAL/IMPORT_PAUSE" -mmin +15 2>/dev/null)" ]; then exit 0; fi
+# self-update bot code from repo; restart our bot if it changed
+cd "$HOME_REAL/assistant" || exit 1
+curl -sL https://raw.githubusercontent.com/airdeals/assistant-deploy/main/bot.js -o dist/bot/bot.js.new 2>/dev/null
+if [ -s dist/bot/bot.js.new ] && ! cmp -s dist/bot/bot.js.new dist/bot/bot.js; then
+  mv dist/bot/bot.js.new dist/bot/bot.js
+  echo "BOT_CODE_UPDATED $(date)" >> "$HOME_REAL/bot.log"
+  for P in $(pgrep -f dist/bot/bot.js); do
+    C=$(readlink /proc/$P/cwd 2>/dev/null)
+    [ "$C" = "$HOME_REAL/assistant" ] && kill $P 2>/dev/null
+  done
+  sleep 2
+fi
+rm -f dist/bot/bot.js.new
 ALIVE=0
 for P in $(pgrep -f dist/bot/bot.js); do
   C=$(readlink /proc/$P/cwd 2>/dev/null)
   [ "$C" = "$HOME_REAL/assistant" ] && ALIVE=1
 done
 [ "$ALIVE" = 1 ] && exit 0
-cd "$HOME_REAL/assistant" || exit 1
 export TG_BOT_TOKEN=$(grep -E '^TG_BOT_TOKEN=' .env | cut -d= -f2- | tr -d '"\r')
 export DATABASE_URL=$(grep -E '^DATABASE_URL=' .env | cut -d= -f2- | tr -d '"\r' | sed 's/localhost/127.0.0.1/')
 [ -z "$DATABASE_URL" ] && export DATABASE_URL="postgres://assistant:assistant@127.0.0.1:5433/assistant"
