@@ -31,7 +31,9 @@ sha256sum dist/cli/importCli.js
 
 # 2. fetch_chunks.mjs
 cat > fetch_chunks.mjs <<'MJS_EOF'
-import { writeFileSync, appendFileSync, unlinkSync, existsSync } from "node:fs";
+import { createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const [, , metaJson, outfile] = process.argv;
 const meta = JSON.parse(metaJson);
@@ -43,14 +45,18 @@ async function api(path) {
   return r.json();
 }
 
+const out = createWriteStream(outfile);
 for (const p of meta.parts) {
   const gf = await api(`/getFile?file_id=${encodeURIComponent(p.file_id)}`);
   if (!gf.ok) { console.error("getFile fail", p.part, gf); process.exit(1); }
   const url = `https://api.telegram.org/file/bot${TOKEN}/${gf.result.file_path}`;
-  const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
-  appendFileSync(outfile, buf);
-  console.log(`part ${p.part} downloaded, ${buf.length} bytes`);
+  const res = await fetch(url);
+  if (!res.ok || !res.body) { console.error("fetch fail", p.part, res.status); process.exit(1); }
+  await pipeline(Readable.fromWeb(res.body), out, { end: false });
+  console.log(`part ${p.part} streamed`);
 }
+out.end();
+await new Promise((r) => out.on("finish", r));
 console.log("ASSEMBLY_DONE", outfile);
 MJS_EOF
 wc -c fetch_chunks.mjs
