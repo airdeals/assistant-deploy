@@ -2,6 +2,8 @@
 # cron-bot.sh — keep bot alive; called by panel cron every minute.
 # Bot reads config from process env only (not .env) — export both vars inline.
 HOME_REAL=/home/k/kebabms
+# importer owns the single DB connection while its pause flag is fresh (<15 min)
+if [ -f "$HOME_REAL/IMPORT_PAUSE" ] && [ -z "$(find "$HOME_REAL/IMPORT_PAUSE" -mmin +15 2>/dev/null)" ]; then exit 0; fi
 ALIVE=0
 for P in $(pgrep -f dist/bot/bot.js); do
   C=$(readlink /proc/$P/cwd 2>/dev/null)
