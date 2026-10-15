@@ -70,6 +70,7 @@ echo "ASSEMBLY_DONE $(wc -c < ~/tg1_parts/tg1.tar.gz)"
 rm -rf ~/tg1_extract && mkdir -p ~/tg1_extract
 tar -xzf ~/tg1_parts/tg1.tar.gz -C ~/tg1_extract || { echo BOOT_FAIL_TAR; exit 1; }
 echo "CHAT_FILES $(ls ~/tg1_extract/tg1_chats | wc -l)"
+rm -f ~/tg1_batch_state
 
 # 6.5 stats BEFORE import
 node -e "
@@ -81,16 +82,35 @@ c.connect()
  .catch(e=>{console.error('PRESTATS_FAIL',e.message);process.exit(1);});
 "
 
-# 7. import (long; retry once if killed externally — importCli upserts by external id)
-node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_extract/tg1_chats --own-sender=user230434076
-RC=$?
-echo "IMPORT_EXIT=$RC"
-if [ "$RC" != 0 ]; then
-  echo "IMPORT_RETRY after 20s"
-  sleep 20
-  node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_extract/tg1_chats --own-sender=user230434076
-  echo "IMPORT_EXIT2=$?"
-fi
+# 7. import in BATCHES (single long import gets SIGKILLed by cgroup; small batches keep peak memory low)
+ls ~/tg1_extract/tg1_chats > ~/tg1_filelist.txt
+TOTAL=$(wc -l < ~/tg1_filelist.txt)
+echo "FILES_TOTAL=$TOTAL"
+BATCH=120
+START_IDX=1
+[ -f ~/tg1_batch_state ] && START_IDX=$(cat ~/tg1_batch_state)
+while [ "$START_IDX" -le "$TOTAL" ]; do
+  END_IDX=$((START_IDX+BATCH-1))
+  [ "$END_IDX" -gt "$TOTAL" ] && END_IDX=$TOTAL
+  rm -rf ~/tg1_batch && mkdir -p ~/tg1_batch
+  sed -n "${START_IDX},${END_IDX}p" ~/tg1_filelist.txt | while read -r FN; do
+    [ -f "$HOME/tg1_extract/tg1_chats/$FN" ] && mv "$HOME/tg1_extract/tg1_chats/$FN" "$HOME/tg1_batch/"
+  done
+  CNT=$(ls ~/tg1_batch | wc -l)
+  echo "BATCH_RUN $START_IDX-$END_IDX files=$CNT"
+  if [ "$CNT" -gt 0 ]; then
+    for TRY in 1 2 3; do
+      node --max-old-space-size=768 dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_batch --own-sender=user230434076
+      RC=$?
+      echo "BATCH_EXIT range=$START_IDX-$END_IDX try=$TRY rc=$RC"
+      [ "$RC" = 0 ] && break
+      sleep 15
+    done
+  fi
+  echo "$((END_IDX+1))" > ~/tg1_batch_state
+  START_IDX=$((END_IDX+1))
+done
+echo ALL_BATCHES_DONE
 
 # 8. fix account own_external_id
 node -e "
@@ -115,7 +135,7 @@ c.connect()
 # 10. ensure TG_OWNER_ID in .env, restart bot
 grep -q '^TG_OWNER_ID=' .env || echo 'TG_OWNER_ID=1121294292' >> .env
 grep TG_OWNER_ID .env
-nohup node dist/bot/bot.js > ~/bot.log 2>&1 &
+TG_OWNER_ID=1121294292 nohup node dist/bot/bot.js > ~/bot.log 2>&1 &
 echo "BOT_STARTED $!"
 sleep 5
 tail -5 ~/bot.log
