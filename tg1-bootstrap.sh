@@ -77,10 +77,10 @@ rm -f /tmp/tg1.tar.gz
 node fetch_chunks.mjs "$(cat /tmp/chunks.json)" /tmp/tg1.tar.gz || { echo BOOT_FAIL_FETCH; exit 1; }
 ls -la /tmp/tg1.tar.gz
 
-# 6. extract
-rm -rf /tmp/tg1 && mkdir -p /tmp/tg1
-tar -xzf /tmp/tg1.tar.gz -C /tmp/tg1 || { echo BOOT_FAIL_TAR; exit 1; }
-echo "CHAT_FILES $(ls /tmp/tg1/tg1_chats | wc -l)"
+# 6. extract (to disk-backed dir, NOT /tmp tmpfs — cgroup kills big tmpfs writes)
+rm -rf ~/tg1_extract && mkdir -p ~/tg1_extract
+tar -xzf /tmp/tg1.tar.gz -C ~/tg1_extract || { echo BOOT_FAIL_TAR; exit 1; }
+echo "CHAT_FILES $(ls ~/tg1_extract/tg1_chats | wc -l)"
 
 # 6.5 stats BEFORE import
 node -e "
@@ -93,7 +93,7 @@ c.connect()
 "
 
 # 7. import (long)
-node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=/tmp/tg1/tg1_chats --own-sender=user230434076
+node dist/cli/importCli.js --format=tg --account=a1b2c3d4-0001-7000-8000-000000000001 --dir=$HOME/tg1_extract/tg1_chats --own-sender=user230434076
 echo "IMPORT_EXIT=$?"
 
 # 8. fix account own_external_id
