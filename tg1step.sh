@@ -43,11 +43,11 @@ IDX=1
 [ -z "$IDX" ] && IDX=1
 echo "PROGRESS idx=$IDX total=$TOTAL $(date)" >> "$LOG"
 
-# 2. collect batch: <=12 files and <=8MB total; one big file goes alone
+# 2. collect batch: <=50 files and <=20MB total; one big file goes alone
 rm -rf "$BATCHDIR"; mkdir -p "$BATCHDIR"
-BUDGET=8388608; N=0; SUM=0; FIRSTIDX=$IDX
+BUDGET=20971520; N=0; SUM=0; FIRSTIDX=$IDX
 while [ "$IDX" -le "$TOTAL" ]; do
-  [ "$N" -ge 12 ] && break
+  [ "$N" -ge 50 ] && break
   [ "$SUM" -ge "$BUDGET" ] && break
   FN=$(sed -n "${IDX}p" "$LIST")
   SZ=$(stat -c %s "$SRC/$FN" 2>/dev/null || echo 0)
@@ -66,7 +66,8 @@ if [ "$CNT" = 0 ]; then
 fi
 
 # 3. import this batch once; if killed, next cron run retries the same batch
-# single-connection DB: stop OUR bot before import (cron-bot restarts it within a minute)
+# single-connection DB: pause cron-bot, stop OUR bot, import, unpause
+touch "$HOME_REAL/IMPORT_PAUSE"
 for P in $(pgrep -f dist/bot/bot.js); do
   C=$(readlink /proc/$P/cwd 2>/dev/null)
   [ "$C" = "$HOME_REAL/assistant" ] && kill $P 2>/dev/null
@@ -95,4 +96,5 @@ else
     echo "SKIPPED from=$FIRSTIDX to=$((IDX-1))" >> "$LOG"
   fi
 fi
+rm -f "$HOME_REAL/IMPORT_PAUSE"
 tail -100 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
